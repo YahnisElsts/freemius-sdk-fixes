@@ -1,5 +1,11 @@
-Freemius WordPress SDK
-======================
+Freemius WordPress SDK (Fork)
+=============================
+
+This is my personal fork of the Freemius SDK that includes a few patches and workarounds for bugs that I've encountered while using the SDK in my plugin. 
+
+*Original readme follows:*
+
+-----
 
 Welcome to the official repository for the Freemius SDK! Adding the SDK to your WordPress plugin, theme, or add-ons, enables all the benefits that come with using the [Freemius platform](https://freemius.com) such as:
 
