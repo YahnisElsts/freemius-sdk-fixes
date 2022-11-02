@@ -11871,7 +11871,9 @@
                 }
             }
 
-            if ( ! $this->has_any_license() && $sync_licenses ) {
+            //[WSH] Crash workaround: _sync_licenses depends on the _user property being set
+	        // and it can cause a fatal error if the user hasn't been initialised yet.
+            if ( ! $this->has_any_license() && $sync_licenses && isset($this->_user) ) {
                 $this->_sync_licenses( $id );
             }
 
@@ -16305,6 +16307,7 @@
                 }
             }
 
+            $should_load_plans = false;
             if ( is_object( $site ) &&
                  is_numeric( $site->id ) &&
                  is_numeric( $site->user_id ) &&
@@ -16313,19 +16316,7 @@
                 // Load site.
                 $this->_site = $site;
 
-                // Load plans.
-                $this->_plans = $plans[ $this->_slug ];
-                if ( ! is_array( $this->_plans ) || empty( $this->_plans ) ) {
-                    $this->_sync_plans();
-                } else {
-                    for ( $i = 0, $len = count( $this->_plans ); $i < $len; $i ++ ) {
-                        if ( $this->_plans[ $i ] instanceof FS_Plugin_Plan ) {
-                            $this->_plans[ $i ] = self::decrypt_entity( $this->_plans[ $i ] );
-                        } else {
-                            unset( $this->_plans[ $i ] );
-                        }
-                    }
-                }
+                $should_load_plans = true;
             }
 
             $user = null;
@@ -16361,6 +16352,33 @@
                     clone $user :
                     null;
             }
+
+            /*
+             * [WSH] Crash workaround: Move the code that loads plans so that it runs *after* the user object
+             * is initialized. _sync_plans() indirectly calls get_current_or_network_user_api_scope(), which
+             * assumes that one of the following must be true:
+             *  a) The plugin is active for the entire network.
+             *  b) The user has already been loaded.
+             *
+             * In a situation where the plugin is activated only on certain sites and plans haven't been cached,
+             * this will lead to a fatal error because get_current_or_network_user_api_scope() will try to use
+             * the uninitialized user object.
+	         */
+	        if ( $should_load_plans && ($this->_is_network_active || isset($this->_user)) ) {
+		        // Load plans.
+		        $this->_plans = $plans[ $this->_slug ];
+		        if ( ! is_array( $this->_plans ) || empty( $this->_plans ) ) {
+			        $this->_sync_plans();
+		        } else {
+			        for ( $i = 0, $len = count( $this->_plans ); $i < $len; $i ++ ) {
+				        if ( $this->_plans[ $i ] instanceof FS_Plugin_Plan ) {
+					        $this->_plans[ $i ] = self::decrypt_entity( $this->_plans[ $i ] );
+				        } else {
+					        unset( $this->_plans[ $i ] );
+				        }
+			        }
+		        }
+	        }
 
             if ( is_object( $this->_user ) ) {
                 // Load licenses.
@@ -18452,10 +18470,14 @@
                     $menu_slug           = $this->_menu->get_slug( $item['menu_slug'] );
 
                     if ( ! isset( $item['url'] ) ) {
+	                    /* WSH: Fix deprecation warnings about passing NULL to strpos()
+	                     * and str_replace(). Use an empty string instead when registering
+	                     * a menu item without a valid parent slug.
+	                     */
                         $hook = FS_Admin_Menu_Manager::add_subpage(
                             $item['show_submenu'] ?
                                 $top_level_menu_slug :
-                                null,
+                                '',
                             $item['page_title'],
                             $menu_item,
                             $capability,
@@ -18470,7 +18492,7 @@
                         FS_Admin_Menu_Manager::add_subpage(
                             $item['show_submenu'] ?
                                 $top_level_menu_slug :
-                                null,
+                                '',
                             $item['page_title'],
                             $menu_item,
                             $capability,
@@ -19662,6 +19684,11 @@
         private function _fetch_plugin_plans() {
             $this->_logger->entrance();
             $api = $this->get_current_or_network_user_api_scope();
+
+            //WSH: Fallback in case there is no user object and thus no API object.
+            if ( empty($api) ) {
+            	return array();
+            }
 
             /**
              * @since 1.2.3 When running in DEV mode, retrieve pending plans as well.
@@ -22744,7 +22771,8 @@
          * @return FS_Api
          */
         private function get_api_user_scope( $flush = false ) {
-            if ( ! isset( $this->_user_api ) || $flush ) {
+        	//WSH: _user might not be initialised at this point, so check for that first.
+            if ( (! isset( $this->_user_api ) || $flush) && !empty($this->_user) ) {
                 $this->_user_api = $this->get_api_user_scope_by_user( $this->_user );
             }
 
